@@ -26,7 +26,10 @@ import {
   Users,
   XCircle
 } from "lucide-react";
+import { firebaseApp } from "./firebase";
 import "./styles.css";
+
+void firebaseApp;
 
 const STORAGE_KEY = "dash-snatch-real-sightings";
 const PROFILE_KEY = "dash-snatch-profile";
