@@ -495,6 +495,7 @@ function App() {
     clearSightings
   } = useAppState(user);
   const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete(user));
+  const [celebration, setCelebration] = useState(null);
   const { referenceSignatures, status: referenceStatus } = useDashReferences();
   const playerXp = sightings.reduce((sum, item) => sum + item.xp, 0);
   const currentRank = getCurrentRank(playerXp);
@@ -518,6 +519,12 @@ function App() {
   useEffect(() => {
     setOnboardingComplete(getOnboardingComplete(user));
   }, [user]);
+
+  useEffect(() => {
+    if (!celebration) return undefined;
+    const timeout = window.setTimeout(() => setCelebration(null), 2800);
+    return () => window.clearTimeout(timeout);
+  }, [celebration]);
 
   if (authLoading) {
     return null;
@@ -545,44 +552,93 @@ function App() {
 
   return (
     <div className="app-shell">
+      <CelebrationOverlay celebration={celebration} />
       <Sidebar navigate={navigate} page={page} />
       <main className="workspace">
         <Header currentRank={currentRank} navigate={navigate} playerXp={playerXp} user={user} />
         <RankStrip currentRank={currentRank} nextRank={nextRank} progress={progress} />
-        {page === "hunt" && (
-          <HuntPage
-            addSighting={addSighting}
-            profile={profile}
-            referenceSignatures={referenceSignatures}
-            referenceStatus={referenceStatus}
-            user={user}
-          />
-        )}
-        {page === "map" && <MapPage sightings={sightings} />}
-        {page === "feed" && <FeedPage deleteSighting={deleteSighting} sightings={sightings} user={user} />}
-        {page === "friends" && <FriendsPage profile={profile} setProfile={setProfile} user={user} />}
-        {page === "leaders" && <LeadersPage profile={profile} stats={stats} />}
-        {page === "profile" && (
-          <ProfilePage
-            deleteSighting={deleteSighting}
-            profile={profile}
-            setProfile={setProfile}
-            stats={stats}
-            sightings={sightings}
-            user={user}
-          />
-        )}
-        {page === "settings" && (
-          <SettingsPage
-            clearSightings={clearSightings}
-            profile={profile}
-            setProfile={setProfile}
-            setTheme={setTheme}
-            sightings={sightings}
-            theme={theme}
-          />
-        )}
+        <div className="page-motion" key={page}>
+          {page === "hunt" && (
+            <HuntPage
+              addSighting={addSighting}
+              onCelebrate={setCelebration}
+              profile={profile}
+              referenceSignatures={referenceSignatures}
+              referenceStatus={referenceStatus}
+              user={user}
+            />
+          )}
+          {page === "map" && <MapPage sightings={sightings} />}
+          {page === "feed" && <FeedPage deleteSighting={deleteSighting} sightings={sightings} user={user} />}
+          {page === "friends" && <FriendsPage profile={profile} setProfile={setProfile} user={user} />}
+          {page === "leaders" && <LeadersPage profile={profile} stats={stats} />}
+          {page === "profile" && (
+            <ProfilePage
+              deleteSighting={deleteSighting}
+              profile={profile}
+              setProfile={setProfile}
+              stats={stats}
+              sightings={sightings}
+              user={user}
+            />
+          )}
+          {page === "settings" && (
+            <SettingsPage
+              clearSightings={clearSightings}
+              profile={profile}
+              setProfile={setProfile}
+              setTheme={setTheme}
+              sightings={sightings}
+              theme={theme}
+            />
+          )}
+        </div>
       </main>
+    </div>
+  );
+}
+
+function CelebrationOverlay({ celebration }) {
+  const pieces = useMemo(() => {
+    if (!celebration) return [];
+    const colors = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#0ea5e9", "#8b5cf6"];
+    return Array.from({ length: 42 }, (_, index) => ({
+      id: `${celebration.id}-${index}`,
+      color: colors[index % colors.length],
+      left: 8 + ((index * 19) % 84),
+      delay: (index % 9) * 0.045,
+      drift: ((index % 7) - 3) * 22,
+      rotation: 140 + ((index * 31) % 260)
+    }));
+  }, [celebration]);
+
+  if (!celebration) return null;
+
+  return (
+    <div className="celebration-layer" aria-live="polite" aria-atomic="true">
+      <div className="confetti-burst" aria-hidden="true">
+        {pieces.map((piece) => (
+          <span
+            key={piece.id}
+            style={{
+              "--confetti-color": piece.color,
+              "--confetti-left": `${piece.left}%`,
+              "--confetti-delay": `${piece.delay}s`,
+              "--confetti-drift": `${piece.drift}px`,
+              "--confetti-rotation": `${piece.rotation}deg`
+            }}
+          />
+        ))}
+      </div>
+      <div className="xp-toast">
+        <Sparkles size={18} />
+        <div>
+          <strong>Dash secured</strong>
+          <span>
+            +{celebration.xp} XP · {celebration.quality}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1028,7 +1084,7 @@ function RankStrip({ currentRank, nextRank, progress }) {
   );
 }
 
-function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus, user }) {
+function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, referenceStatus, user }) {
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoName, setPhotoName] = useState("");
   const [privacy, setPrivacy] = useState(profile.privateByDefault ? "Private" : "Public");
@@ -1116,6 +1172,11 @@ function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus, 
       valid: true,
       createdAt: new Date().toISOString()
     });
+    onCelebrate({
+      id: localId,
+      xp: validation.xp,
+      quality: validation.quality
+    });
     setPhotoPreview("");
     setPhotoName("");
     setValidation(null);
@@ -1127,7 +1188,7 @@ function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus, 
         <div className="panel-header">
           <div>
             <h2>Submit sighting</h2>
-            <p>Only photos matching the Dash references can earn XP.</p>
+            <p>Dash Bottenberg is the bounty. Capture a real verified sighting to earn XP.</p>
           </div>
           <ShieldCheck size={24} />
         </div>
@@ -1175,7 +1236,7 @@ function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus, 
         <ValidationCard validation={validation} isChecking={isChecking} />
 
         <button
-          className="submit-button"
+          className={`submit-button ${validation?.valid && photoPreview && coords ? "ready-submit" : ""}`}
           type="button"
           disabled={!validation?.valid || !photoPreview || !coords}
           onClick={submitSighting}
@@ -1199,8 +1260,7 @@ function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus, 
           ))}
         </div>
         <p className="fine-print">
-          MVP validation compares image fingerprints locally. Production should replace this with a trained
-          face/person recognition service and manual review.
+          Dash Bottenberg is the bounty. These reference photos help confirm that a capture is really him.
         </p>
       </section>
     </div>
@@ -1248,6 +1308,13 @@ function ValidationCard({ validation, isChecking }) {
         <strong>{title}</strong>
         <span>{detail}</span>
       </div>
+      {validation.valid && (
+        <div className="validation-sparkles" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </div>
+      )}
     </div>
   );
 }
