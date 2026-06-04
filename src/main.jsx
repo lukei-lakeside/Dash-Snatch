@@ -34,7 +34,19 @@ import {
   updateProfile,
   GoogleAuthProvider
 } from "firebase/auth";
-import { firebaseApp, firebaseAuth } from "./firebase";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  limit,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  where
+} from "firebase/firestore";
+import { firebaseApp, firebaseAuth, firebaseDb } from "./firebase";
 import "./styles.css";
 
 void firebaseApp;
@@ -156,6 +168,33 @@ function saveOnboardingComplete(user) {
   localStorage.setItem(`${ONBOARDING_KEY}:${user.uid}`, "true");
 }
 
+function normalizeSearch(value) {
+  return value.trim().toLowerCase();
+}
+
+function profileFromUser(user, profile = DEFAULT_PROFILE) {
+  const username =
+    profile.username && profile.username !== "You"
+      ? profile.username
+      : user.displayName || user.email?.split("@")[0] || "You";
+  return {
+    username,
+    usernameLower: normalizeSearch(username),
+    email: user.email || "",
+    emailLower: normalizeSearch(user.email || ""),
+    homeBase: profile.homeBase || "",
+    privateByDefault: Boolean(profile.privateByDefault),
+    theme: profile.theme || "light",
+    friends: profile.friends ?? [],
+    updatedAt: serverTimestamp()
+  };
+}
+
+async function upsertUserProfile(user, profile = DEFAULT_PROFILE) {
+  if (!user) return;
+  await setDoc(doc(firebaseDb, "users", user.uid), profileFromUser(user, profile), { merge: true });
+}
+
 function getCurrentRank(xp) {
   return RANKS.slice().reverse().find((rank) => xp >= rank.min) ?? RANKS[0];
 }
@@ -174,6 +213,14 @@ function getQualityByConfidence(confidence) {
 
 function qualityMeta(name) {
   return QUALITY.find((quality) => quality.name === name) ?? QUALITY[0];
+}
+
+function friendKey(friend) {
+  return typeof friend === "string" ? friend : friend.uid;
+}
+
+function friendName(friend) {
+  return typeof friend === "string" ? friend : friend.username || friend.email || "Friend";
 }
 
 function fileToDataUrl(file) {
@@ -234,6 +281,17 @@ async function imageSignature(src) {
   };
 }
 
+async function resizeImageDataUrl(src, maxSize = 900, quality = 0.82) {
+  const image = await loadImage(src);
+  const scale = Math.min(1, maxSize / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
 function similarity(a, b) {
   const histogram = a.bins.reduce((sum, value, index) => sum + value * b.bins[index], 0);
   const brightness = 1 - Math.min(1, Math.abs(a.brightness - b.brightness));
@@ -243,7 +301,9 @@ function similarity(a, b) {
 }
 
 function timeAgo(iso) {
-  const seconds = Math.max(1, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  const createdAt = iso?.toDate ? iso.toDate() : new Date(iso);
+  if (Number.isNaN(createdAt.getTime())) return "just now";
+  const seconds = Math.max(1, Math.floor((Date.now() - createdAt.getTime()) / 1000));
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes} min ago`;
@@ -276,7 +336,7 @@ function useDashReferences() {
   return { referenceSignatures, status };
 }
 
-function useAppState() {
+function useAppState(user) {
   const [sightings, setSightings] = useState(getStoredSightings);
   const [profile, setProfileState] = useState(getStoredProfile);
   const [theme, setThemeState] = useState(getStoredTheme);
@@ -285,10 +345,69 @@ function useAppState() {
     saveTheme(theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (!user) return undefined;
+
+    upsertUserProfile(user, getStoredProfile()).catch(() => {});
+
+    const unsubscribe = onSnapshot(
+      doc(firebaseDb, "users", user.uid),
+      (snapshot) => {
+        if (!snapshot.exists()) return;
+        const remoteProfile = { ...DEFAULT_PROFILE, ...snapshot.data() };
+        setProfileState(remoteProfile);
+        saveProfile(remoteProfile);
+        if (remoteProfile.theme) setThemeState(remoteProfile.theme);
+      },
+      () => {}
+    );
+
+    return unsubscribe;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const ownerIds = [user.uid, ...((profile.friends ?? []).map((friend) => friend.uid).filter(Boolean))];
+    const uniqueOwnerIds = [...new Set(ownerIds)].slice(0, 30);
+    if (!uniqueOwnerIds.length) return undefined;
+
+    const sightingsQuery = query(
+      collection(firebaseDb, "sightings"),
+      where("ownerUid", "in", uniqueOwnerIds),
+      limit(80)
+    );
+
+    const unsubscribe = onSnapshot(
+      sightingsQuery,
+      (snapshot) => {
+        const remoteSightings = snapshot.docs
+          .map((item) => ({ id: item.id, ...item.data() }))
+          .filter(
+            (item) =>
+              item.ownerUid === user.uid ||
+              item.privacy === "Public" ||
+              (item.privacy === "Friends" && uniqueOwnerIds.includes(item.ownerUid))
+          )
+          .sort((a, b) => {
+            const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime();
+            const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime();
+            return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+          });
+        setSightings(remoteSightings);
+        saveSightings(remoteSightings);
+      },
+      () => {}
+    );
+
+    return unsubscribe;
+  }, [profile.friends, user]);
+
   const setProfile = (nextProfile) => {
     const mergedProfile = { ...nextProfile, theme };
     setProfileState(mergedProfile);
     saveProfile(mergedProfile);
+    if (user) upsertUserProfile(user, mergedProfile).catch(() => {});
   };
 
   const setTheme = (nextTheme) => {
@@ -297,12 +416,30 @@ function useAppState() {
     setProfileState(nextProfile);
     saveProfile(nextProfile);
     saveTheme(nextTheme);
+    if (user) upsertUserProfile(user, nextProfile).catch(() => {});
   };
 
-  const addSighting = (sighting) => {
+  const addSighting = async (sighting) => {
     const next = [sighting, ...sightings];
     setSightings(next);
     saveSightings(next);
+    if (user) {
+      await setDoc(doc(firebaseDb, "sightings", sighting.id), {
+        ...sighting,
+        ownerUid: user.uid,
+        ownerUsername: profile.username || user.displayName || user.email || "You",
+        createdAt: serverTimestamp()
+      });
+    }
+  };
+
+  const deleteSighting = async (sighting) => {
+    const next = sightings.filter((item) => item.id !== sighting.id);
+    setSightings(next);
+    saveSightings(next);
+    if (user && sighting.ownerUid === user.uid) {
+      await deleteDoc(doc(firebaseDb, "sightings", sighting.id));
+    }
   };
 
   const clearSightings = () => {
@@ -310,7 +447,7 @@ function useAppState() {
     saveSightings([]);
   };
 
-  return { sightings, profile, setProfile, theme, setTheme, addSighting, clearSightings };
+  return { sightings, profile, setProfile, theme, setTheme, addSighting, deleteSighting, clearSightings };
 }
 
 function useAuthUser() {
@@ -347,7 +484,16 @@ function usePageNavigation() {
 function App() {
   const { loading: authLoading, user } = useAuthUser();
   const { page, navigate } = usePageNavigation();
-  const { sightings, profile, setProfile, theme, setTheme, addSighting, clearSightings } = useAppState();
+  const {
+    sightings,
+    profile,
+    setProfile,
+    theme,
+    setTheme,
+    addSighting,
+    deleteSighting,
+    clearSightings
+  } = useAppState(user);
   const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete(user));
   const { referenceSignatures, status: referenceStatus } = useDashReferences();
   const playerXp = sightings.reduce((sum, item) => sum + item.xp, 0);
@@ -409,14 +555,22 @@ function App() {
             profile={profile}
             referenceSignatures={referenceSignatures}
             referenceStatus={referenceStatus}
+            user={user}
           />
         )}
         {page === "map" && <MapPage sightings={sightings} />}
-        {page === "feed" && <FeedPage sightings={sightings} />}
-        {page === "friends" && <FriendsPage profile={profile} setProfile={setProfile} />}
+        {page === "feed" && <FeedPage deleteSighting={deleteSighting} sightings={sightings} user={user} />}
+        {page === "friends" && <FriendsPage profile={profile} setProfile={setProfile} user={user} />}
         {page === "leaders" && <LeadersPage profile={profile} stats={stats} />}
         {page === "profile" && (
-          <ProfilePage profile={profile} setProfile={setProfile} stats={stats} sightings={sightings} />
+          <ProfilePage
+            deleteSighting={deleteSighting}
+            profile={profile}
+            setProfile={setProfile}
+            stats={stats}
+            sightings={sightings}
+            user={user}
+          />
         )}
         {page === "settings" && (
           <SettingsPage
@@ -874,7 +1028,7 @@ function RankStrip({ currentRank, nextRank, progress }) {
   );
 }
 
-function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus }) {
+function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus, user }) {
   const [photoPreview, setPhotoPreview] = useState("");
   const [photoName, setPhotoName] = useState("");
   const [privacy, setPrivacy] = useState(profile.privateByDefault ? "Private" : "Public");
@@ -888,23 +1042,26 @@ function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus }
     if (!file) return;
     setIsChecking(true);
     setValidation(null);
-    const dataUrl = await fileToDataUrl(file);
+    const originalDataUrl = await fileToDataUrl(file);
+    const dataUrl = await resizeImageDataUrl(originalDataUrl);
     setPhotoPreview(dataUrl);
     setPhotoName(file.name);
 
     try {
-      const signature = await imageSignature(dataUrl);
+      const signature = await imageSignature(originalDataUrl);
       const match = referenceSignatures.length
         ? Math.max(...referenceSignatures.map((reference) => similarity(signature, reference)))
         : 0;
       const confidence = Number(match.toFixed(3));
-      const valid = confidence >= 0.72;
+      const isReferenceImage = confidence >= 0.995;
+      const valid = confidence >= 0.72 && !isReferenceImage;
       const quality = getQualityByConfidence(confidence);
       setValidation({
         valid,
         confidence,
-        quality: valid ? quality.name : "No match",
-        xp: valid ? quality.xp : 0
+        quality: isReferenceImage ? "Reference image" : valid ? quality.name : "No match",
+        xp: valid ? quality.xp : 0,
+        isReferenceImage
       });
     } catch {
       setValidation({
@@ -939,11 +1096,14 @@ function HuntPage({ addSighting, profile, referenceSignatures, referenceStatus }
     );
   }
 
-  function submitSighting() {
+  async function submitSighting() {
     if (!validation?.valid || !photoPreview || !coords) return;
-    addSighting({
-      id: crypto.randomUUID(),
+    const localId = crypto.randomUUID();
+    await addSighting({
+      id: localId,
       user: profile.username || "You",
+      ownerUid: user.uid,
+      ownerUsername: profile.username || user.displayName || user.email || "You",
       title: photoName.replace(/\.[^.]+$/, "") || "Dash sighting",
       locationName,
       lat: coords.lat,
@@ -1073,12 +1233,20 @@ function ValidationCard({ validation, isChecking }) {
   }
 
   const Icon = validation.valid ? CheckCircle2 : XCircle;
+  const title = validation.isReferenceImage
+    ? "Reference images do not earn XP"
+    : validation.valid
+      ? `${validation.quality} Dash match`
+      : "Not Dash Bottenberg";
+  const detail = validation.isReferenceImage
+    ? "Use a real sighting photo, not one of the test/reference images."
+    : `${Math.round(validation.confidence * 100)}% reference similarity · ${validation.xp} XP`;
   return (
     <div className={`validation ${validation.valid ? "valid" : "invalid"}`}>
       <Icon size={22} />
       <div>
-        <strong>{validation.valid ? `${validation.quality} Dash match` : "Not Dash Bottenberg"}</strong>
-        <span>{Math.round(validation.confidence * 100)}% reference similarity · {validation.xp} XP</span>
+        <strong>{title}</strong>
+        <span>{detail}</span>
       </div>
     </div>
   );
@@ -1174,7 +1342,7 @@ function LeafletSightingsMap({ sightings }) {
   );
 }
 
-function FeedPage({ sightings }) {
+function FeedPage({ deleteSighting, sightings, user }) {
   return (
     <section className="panel full-panel">
       <div className="panel-header">
@@ -1191,7 +1359,14 @@ function FeedPage({ sightings }) {
               <img src={item.image} alt="" />
               <span style={{ backgroundColor: qualityMeta(item.quality).color }}>{item.quality}</span>
               <strong>{item.title}</strong>
-              <small>{item.locationName} · {timeAgo(item.createdAt)}</small>
+              <small>
+                {item.ownerUsername || item.user} · {item.locationName} · {timeAgo(item.createdAt)}
+              </small>
+              {item.ownerUid === user.uid && (
+                <button className="delete-upload" type="button" onClick={() => deleteSighting(item)}>
+                  Remove upload
+                </button>
+              )}
             </article>
           ))}
         </div>
@@ -1208,20 +1383,64 @@ function FeedPage({ sightings }) {
   );
 }
 
-function FriendsPage({ profile, setProfile }) {
-  const [friendInput, setFriendInput] = useState("");
+function FriendsPage({ profile, setProfile, user }) {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [results, setResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
   const friends = profile.friends ?? [];
 
-  function addFriend(event) {
+  async function searchFriends(event) {
     event.preventDefault();
-    const friend = friendInput.trim();
-    if (!friend || friends.includes(friend)) return;
-    setProfile({ ...profile, friends: [...friends, friend] });
-    setFriendInput("");
+    const term = normalizeSearch(searchTerm);
+    if (!term) return;
+    setIsSearching(true);
+    setSearchError("");
+
+    try {
+      const usersRef = collection(firebaseDb, "users");
+      const [emailMatches, usernameMatches] = await Promise.all([
+        getDocs(query(usersRef, where("emailLower", "==", term), limit(8))),
+        getDocs(
+          query(
+            usersRef,
+            where("usernameLower", ">=", term),
+            where("usernameLower", "<=", `${term}\uf8ff`),
+            limit(8)
+          )
+        )
+      ]);
+      const existing = new Set(friends.map(friendKey));
+      const merged = [...emailMatches.docs, ...usernameMatches.docs]
+        .map((item) => ({ uid: item.id, ...item.data() }))
+        .filter((item, index, items) => item.uid !== user.uid && !existing.has(item.uid) && items.findIndex((candidate) => candidate.uid === item.uid) === index);
+      setResults(merged);
+      if (!merged.length) setSearchError("No matching Dash-Snatch accounts found.");
+    } catch {
+      setSearchError("Friend search needs Firestore enabled and readable user profiles.");
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  function addFriend(friend) {
+    if (friends.some((item) => friendKey(item) === friend.uid)) return;
+    setProfile({
+      ...profile,
+      friends: [
+        ...friends,
+        {
+          uid: friend.uid,
+          username: friend.username || friend.email || "Friend",
+          email: friend.email || ""
+        }
+      ]
+    });
+    setResults(results.filter((item) => item.uid !== friend.uid));
   }
 
   function removeFriend(friend) {
-    setProfile({ ...profile, friends: friends.filter((item) => item !== friend) });
+    setProfile({ ...profile, friends: friends.filter((item) => friendKey(item) !== friendKey(friend)) });
   }
 
   return (
@@ -1233,26 +1452,41 @@ function FriendsPage({ profile, setProfile }) {
         </div>
         <UserPlus size={22} />
       </div>
-      <form className="friend-page-form" onSubmit={addFriend}>
+      <form className="friend-page-form" onSubmit={searchFriends}>
         <label>
           <span>Friend username or email</span>
           <div className="friend-entry">
             <input
-              value={friendInput}
-              onChange={(event) => setFriendInput(event.target.value)}
-              placeholder="friend@example.com"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder="Search a username or email"
             />
-            <button type="submit">Add</button>
+            <button type="submit">{isSearching ? "..." : "Search"}</button>
           </div>
         </label>
       </form>
+      {searchError && <div className="auth-error">{searchError}</div>}
+      {results.length > 0 && (
+        <div className="friends-list search-results">
+          {results.map((friend) => (
+            <div className="friend-row" key={friend.uid}>
+              <Users size={18} />
+              <strong>{friend.username || friend.email}</strong>
+              <small>{friend.email}</small>
+              <button type="button" onClick={() => addFriend(friend)}>
+                Add
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {friends.length ? (
         <div className="friends-list">
           {friends.map((friend) => (
-            <div className="friend-row" key={friend}>
+            <div className="friend-row" key={friendKey(friend)}>
               <Users size={18} />
-              <strong>{friend}</strong>
-              <small>Added locally</small>
+              <strong>{friendName(friend)}</strong>
+              <small>{typeof friend === "string" ? "Added locally" : friend.email}</small>
               <button type="button" onClick={() => removeFriend(friend)}>
                 Remove
               </button>
@@ -1280,7 +1514,7 @@ function LeadersPage({ profile, stats }) {
       detail: `${stats.valid} valid`
     },
     ...(profile.friends ?? []).map((friend) => ({
-      name: friend,
+      name: friendName(friend),
       xp: 0,
       detail: "friend"
     }))
@@ -1309,7 +1543,7 @@ function LeadersPage({ profile, stats }) {
   );
 }
 
-function ProfilePage({ profile, setProfile, stats, sightings }) {
+function ProfilePage({ deleteSighting, profile, setProfile, stats, sightings, user }) {
   return (
     <div className="page-grid profile-grid">
       <section className="panel stats-panel">
@@ -1352,13 +1586,16 @@ function ProfilePage({ profile, setProfile, stats, sightings }) {
           <h2>Recent submissions</h2>
           <Star size={22} />
         </div>
-        {sightings.length ? (
-          sightings.slice(0, 5).map((item) => (
+        {sightings.filter((item) => item.ownerUid === user.uid).length ? (
+          sightings.filter((item) => item.ownerUid === user.uid).slice(0, 5).map((item) => (
             <div className="submission-row" key={item.id}>
               <img src={item.image} alt="" />
               <strong>{item.title}</strong>
               <span>{item.quality}</span>
               <small>{timeAgo(item.createdAt)}</small>
+              <button type="button" onClick={() => deleteSighting(item)}>
+                Remove
+              </button>
             </div>
           ))
         ) : (

@@ -1282,6 +1282,17 @@ article.photo-card {
   font-size: 12px;
 }
 
+.delete-upload,
+.submission-row button {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--secondary), white 50%);
+  border-radius: 8px;
+  color: var(--secondary);
+  background: color-mix(in srgb, var(--secondary), transparent 91%);
+  font-size: 12px;
+  font-weight: 850;
+}
+
 .reference-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1413,7 +1424,7 @@ article.photo-card {
 
 .submission-row {
   display: grid;
-  grid-template-columns: 56px 1fr max-content max-content;
+  grid-template-columns: 56px 1fr max-content max-content max-content;
   align-items: center;
   gap: 12px;
   padding: 10px 0;
