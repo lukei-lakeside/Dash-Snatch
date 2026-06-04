@@ -212,7 +212,8 @@ p {
 .primary-button,
 .submit-button,
 .map-tools button,
-.text-button {
+.text-button,
+.ghost-button {
   border: 0;
   border-radius: 8px;
   min-height: 42px;
@@ -243,6 +244,105 @@ p {
   color: #fff;
   background: linear-gradient(135deg, var(--primary), var(--secondary));
   box-shadow: 0 14px 30px rgba(99, 102, 241, 0.2);
+}
+
+.ghost-button {
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  color: #475569;
+  background: #fff;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #111827;
+  text-decoration: none;
+  font-weight: 850;
+}
+
+.auth-card h1 {
+  font-size: 28px;
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.auth-tabs button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 7px;
+  color: #64748b;
+  background: transparent;
+  font-weight: 800;
+}
+
+.auth-tabs button.active {
+  color: var(--primary-dark);
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-form span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.auth-form input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #111827;
+  background: #fff;
+}
+
+.auth-error {
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #b91c1c;
+  background: #fef2f2;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .rank-strip {

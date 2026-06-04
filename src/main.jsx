@@ -26,7 +26,14 @@ import {
   Users,
   XCircle
 } from "lucide-react";
-import { firebaseApp } from "./firebase";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile
+} from "firebase/auth";
+import { firebaseApp, firebaseAuth } from "./firebase";
 import "./styles.css";
 
 void firebaseApp;
@@ -71,6 +78,21 @@ const DEFAULT_PROFILE = {
   homeBase: "",
   privateByDefault: false
 };
+
+function firebaseMessage(error) {
+  const code = error?.code ?? "";
+  if (code.includes("email-already-in-use")) return "That email already has an account.";
+  if (code.includes("invalid-email")) return "Enter a valid email address.";
+  if (code.includes("weak-password")) return "Use a password with at least 6 characters.";
+  if (code.includes("invalid-credential") || code.includes("wrong-password")) {
+    return "Email or password is incorrect.";
+  }
+  if (code.includes("user-not-found")) return "No account exists for that email.";
+  if (code.includes("operation-not-allowed")) {
+    return "Enable Email/Password sign-in in Firebase Authentication.";
+  }
+  return "Authentication failed. Try again.";
+}
 
 function getPage() {
   const name = window.location.pathname.split("/").pop()?.replace(".html", "");
@@ -245,7 +267,21 @@ function useAppState() {
   return { sightings, profile, setProfile, addSighting, clearSightings };
 }
 
+function useAuthUser() {
+  const [authState, setAuthState] = useState({ loading: true, user: null });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+      setAuthState({ loading: false, user });
+    });
+    return unsubscribe;
+  }, []);
+
+  return authState;
+}
+
 function App() {
+  const { loading: authLoading, user } = useAuthUser();
   const page = getPage();
   const { sightings, profile, setProfile, addSighting, clearSightings } = useAppState();
   const { referenceSignatures, status: referenceStatus } = useDashReferences();
@@ -268,11 +304,19 @@ function App() {
     };
   }, [playerXp, sightings]);
 
+  if (authLoading) {
+    return <AuthLoading />;
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
+
   return (
     <div className="app-shell">
       <Sidebar page={page} />
       <main className="workspace">
-        <Header currentRank={currentRank} playerXp={playerXp} />
+        <Header currentRank={currentRank} playerXp={playerXp} user={user} />
         <RankStrip currentRank={currentRank} nextRank={nextRank} progress={progress} />
         {page === "hunt" && (
           <HuntPage
@@ -320,7 +364,130 @@ function Sidebar({ page }) {
   );
 }
 
-function Header({ currentRank, playerXp }) {
+function AuthLoading() {
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <span className="brand-mark">DS</span>
+        <h1>Loading Dash-Snatch</h1>
+        <p>Checking your sign-in session.</p>
+      </section>
+    </main>
+  );
+}
+
+function AuthPage() {
+  const [mode, setMode] = useState("signin");
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSignup = mode === "signup";
+
+  async function submitAuth(event) {
+    event.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+
+    try {
+      if (isSignup) {
+        const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+        if (displayName.trim()) {
+          await updateProfile(credential.user, { displayName: displayName.trim() });
+        }
+      } else {
+        await signInWithEmailAndPassword(firebaseAuth, email, password);
+      }
+    } catch (authError) {
+      setError(firebaseMessage(authError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <a className="auth-brand" href="/hunt.html" aria-label="Dash-Snatch">
+          <span className="brand-mark">DS</span>
+          <span>Dash-Snatch</span>
+        </a>
+        <div>
+          <h1>{isSignup ? "Create your hunter account" : "Sign in to hunt"}</h1>
+          <p>Sign in first, then submit verified Dash Bottenberg sightings.</p>
+        </div>
+
+        <div className="auth-tabs" role="tablist" aria-label="Authentication mode">
+          <button
+            className={!isSignup ? "active" : ""}
+            type="button"
+            onClick={() => {
+              setMode("signin");
+              setError("");
+            }}
+          >
+            Sign in
+          </button>
+          <button
+            className={isSignup ? "active" : ""}
+            type="button"
+            onClick={() => {
+              setMode("signup");
+              setError("");
+            }}
+          >
+            Sign up
+          </button>
+        </div>
+
+        <form className="auth-form" onSubmit={submitAuth}>
+          {isSignup && (
+            <label>
+              <span>Hunter name</span>
+              <input
+                autoComplete="name"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                placeholder="Dash hunter"
+              />
+            </label>
+          )}
+          <label>
+            <span>Email</span>
+            <input
+              autoComplete="email"
+              inputMode="email"
+              required
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+            />
+          </label>
+          <label>
+            <span>Password</span>
+            <input
+              autoComplete={isSignup ? "new-password" : "current-password"}
+              required
+              type="password"
+              minLength={6}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="At least 6 characters"
+            />
+          </label>
+          {error && <div className="auth-error">{error}</div>}
+          <button className="submit-button" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Working..." : isSignup ? "Create account" : "Sign in"}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+function Header({ currentRank, playerXp, user }) {
   return (
     <header className="topbar">
       <div>
@@ -341,6 +508,9 @@ function Header({ currentRank, playerXp }) {
           <Camera size={18} />
           Capture
         </a>
+        <button className="ghost-button" type="button" onClick={() => signOut(firebaseAuth)}>
+          {user.displayName || "Sign out"}
+        </button>
       </div>
     </header>
   );
