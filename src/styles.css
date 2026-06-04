@@ -336,7 +336,7 @@ p {
 .ghost-button {
   padding: 0 13px;
   border: 1px solid var(--border);
-  color: #475569;
+  color: var(--muted);
   background: var(--input-bg);
 }
 
@@ -520,7 +520,7 @@ p {
 
 .friend-row {
   display: grid;
-  grid-template-columns: 24px 1fr max-content max-content;
+  grid-template-columns: 42px 1fr max-content;
   align-items: center;
   gap: 12px;
   min-height: 58px;
@@ -535,6 +535,8 @@ p {
 }
 
 .friend-row small {
+  display: block;
+  margin-top: 2px;
   color: var(--muted);
 }
 
@@ -594,8 +596,70 @@ p {
   box-shadow: 0 18px 36px rgba(99, 102, 241, 0.22);
 }
 
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary), transparent 62%);
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  box-shadow: 0 10px 20px rgba(99, 102, 241, 0.14);
+}
+
+.avatar-sm {
+  width: 28px;
+  height: 28px;
+}
+
+.avatar-md {
+  width: 42px;
+  height: 42px;
+}
+
+.avatar-lg {
+  width: 68px;
+  height: 68px;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar strong {
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.avatar-lg strong {
+  font-size: 20px;
+}
+
+.profile-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--soft-bg);
+}
+
+.profile-preview > div {
+  display: grid;
+  gap: 4px;
+}
+
+.profile-preview strong {
+  font-size: 16px;
+}
+
 .field-label {
-  color: #64748b;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
@@ -1380,6 +1444,13 @@ article.photo-card {
   font-size: 12px;
 }
 
+.feed-author {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
 .delete-upload,
 .submission-row button {
   min-height: 34px;
@@ -1526,7 +1597,7 @@ article.photo-card {
 
 .leaderboard-single {
   display: grid;
-  grid-template-columns: 36px 1fr max-content max-content;
+  grid-template-columns: 36px 42px 1fr max-content max-content;
   align-items: center;
   gap: 14px;
   padding: 16px;
@@ -1628,6 +1699,7 @@ article.photo-card {
 
 .toggle-row,
 .danger-zone {
+  color: inherit;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1636,7 +1708,7 @@ article.photo-card {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--soft-bg);
 }
 
 .toggle-row span,
@@ -1659,11 +1731,29 @@ article.photo-card {
 .danger-zone button {
   min-height: 38px;
   padding: 0 14px;
-  border: 1px solid #fecaca;
+  border: 1px solid color-mix(in srgb, var(--danger), white 62%);
   border-radius: 8px;
-  color: #b91c1c;
-  background: #fef2f2;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger), transparent 91%);
   font-weight: 800;
+}
+
+:root[data-theme="night"] .toggle-row,
+:root[data-theme="night"] .danger-zone,
+:root[data-theme="night"] .theme-option {
+  color: #e5e7eb;
+}
+
+:root[data-theme="night"] .toggle-row strong,
+:root[data-theme="night"] .danger-zone strong,
+:root[data-theme="night"] .theme-option strong {
+  color: #f8fafc;
+}
+
+:root[data-theme="night"] .danger-zone button {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.38);
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .danger-zone button:disabled {
@@ -1797,13 +1887,22 @@ article.photo-card {
 
   .leaderboard-single,
   .submission-row {
-    grid-template-columns: 32px 1fr;
+    grid-template-columns: 32px 42px 1fr;
   }
 
   .leaderboard-single small,
   .leaderboard-single em,
   .submission-row span,
   .submission-row small {
+    justify-self: start;
+  }
+
+  .friend-row {
+    grid-template-columns: 42px 1fr;
+  }
+
+  .friend-row button {
+    grid-column: 2;
     justify-self: start;
   }
 

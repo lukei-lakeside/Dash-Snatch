@@ -93,6 +93,7 @@ const QUALITY = [
 
 const DEFAULT_PROFILE = {
   username: "You",
+  avatarUrl: "",
   homeBase: "",
   privateByDefault: false,
   theme: "light",
@@ -169,7 +170,26 @@ function saveOnboardingComplete(user) {
 }
 
 function normalizeSearch(value) {
-  return value.trim().toLowerCase();
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function normalizeUsername(value) {
+  return normalizeSearch(value).replace(/^@+/, "");
+}
+
+function usernamePrefixes(username) {
+  const normalized = normalizeUsername(username);
+  return Array.from({ length: Math.min(normalized.length, 32) }, (_, index) =>
+    normalized.slice(0, index + 1)
+  );
+}
+
+function initialsFor(value) {
+  const parts = String(value || "Friend")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  return (parts[0]?.[0] || "F").toUpperCase() + (parts[1]?.[0] || "").toUpperCase();
 }
 
 function profileFromUser(user, profile = DEFAULT_PROFILE) {
@@ -177,9 +197,12 @@ function profileFromUser(user, profile = DEFAULT_PROFILE) {
     profile.username && profile.username !== "You"
       ? profile.username
       : user.displayName || user.email?.split("@")[0] || "You";
+  const normalizedUsername = normalizeUsername(username);
   return {
     username,
-    usernameLower: normalizeSearch(username),
+    usernameLower: normalizedUsername,
+    usernamePrefixes: usernamePrefixes(username),
+    avatarUrl: profile.avatarUrl || user.photoURL || "",
     email: user.email || "",
     emailLower: normalizeSearch(user.email || ""),
     homeBase: profile.homeBase || "",
@@ -221,6 +244,18 @@ function friendKey(friend) {
 
 function friendName(friend) {
   return typeof friend === "string" ? friend : friend.username || friend.email || "Friend";
+}
+
+function friendAvatar(friend) {
+  return typeof friend === "string" ? "" : friend.avatarUrl || "";
+}
+
+function Avatar({ name, src, size = "md" }) {
+  return (
+    <span className={`avatar avatar-${size}`} title={name}>
+      {src ? <img src={src} alt="" referrerPolicy="no-referrer" /> : <strong>{initialsFor(name)}</strong>}
+    </span>
+  );
 }
 
 function fileToDataUrl(file) {
@@ -428,6 +463,7 @@ function useAppState(user) {
         ...sighting,
         ownerUid: user.uid,
         ownerUsername: profile.username || user.displayName || user.email || "You",
+        ownerAvatarUrl: profile.avatarUrl || user.photoURL || "",
         createdAt: serverTimestamp()
       });
     }
@@ -814,6 +850,7 @@ function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete
   const [username, setUsername] = useState(
     profile.username === "You" ? user.displayName || "" : profile.username
   );
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || user.photoURL || "");
   const [homeBase, setHomeBase] = useState(profile.homeBase);
   const [privateByDefault, setPrivateByDefault] = useState(profile.privateByDefault);
   const [friendQuery, setFriendQuery] = useState("");
@@ -831,6 +868,7 @@ function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete
     setProfile({
       ...profile,
       username: username.trim() || user.displayName || "You",
+      avatarUrl,
       homeBase,
       privateByDefault,
       theme,
@@ -944,12 +982,27 @@ function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete
 
           {step === 3 && (
             <div className="onboarding-panel">
+              <div className="profile-preview">
+                <Avatar name={username || user.displayName || user.email} src={avatarUrl} size="lg" />
+                <div>
+                  <strong>{username || user.displayName || "New hunter"}</strong>
+                  <p>{avatarUrl ? "Avatar ready for friend search." : "Add an avatar URL or use your initials."}</p>
+                </div>
+              </div>
               <label>
                 <span>Hunter name</span>
                 <input
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                   placeholder="Your display name"
+                />
+              </label>
+              <label>
+                <span>Avatar image URL</span>
+                <input
+                  value={avatarUrl}
+                  onChange={(event) => setAvatarUrl(event.target.value)}
+                  placeholder="https://example.com/avatar.jpg"
                 />
               </label>
               <label>
@@ -1160,6 +1213,7 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
       user: profile.username || "You",
       ownerUid: user.uid,
       ownerUsername: profile.username || user.displayName || user.email || "You",
+      ownerAvatarUrl: profile.avatarUrl || user.photoURL || "",
       title: photoName.replace(/\.[^.]+$/, "") || "Dash sighting",
       locationName,
       lat: coords.lat,
@@ -1426,9 +1480,12 @@ function FeedPage({ deleteSighting, sightings, user }) {
               <img src={item.image} alt="" />
               <span style={{ backgroundColor: qualityMeta(item.quality).color }}>{item.quality}</span>
               <strong>{item.title}</strong>
-              <small>
-                {item.ownerUsername || item.user} · {item.locationName} · {timeAgo(item.createdAt)}
-              </small>
+              <div className="feed-author">
+                <Avatar name={item.ownerUsername || item.user} src={item.ownerAvatarUrl} size="sm" />
+                <small>
+                  {item.ownerUsername || item.user} · {item.locationName} · {timeAgo(item.createdAt)}
+                </small>
+              </div>
               {item.ownerUid === user.uid && (
                 <button className="delete-upload" type="button" onClick={() => deleteSighting(item)}>
                   Remove upload
@@ -1459,32 +1516,33 @@ function FriendsPage({ profile, setProfile, user }) {
 
   async function searchFriends(event) {
     event.preventDefault();
-    const term = normalizeSearch(searchTerm);
+    const term = normalizeUsername(searchTerm);
     if (!term) return;
     setIsSearching(true);
     setSearchError("");
+    setResults([]);
 
     try {
       const usersRef = collection(firebaseDb, "users");
-      const [emailMatches, usernameMatches] = await Promise.all([
-        getDocs(query(usersRef, where("emailLower", "==", term), limit(8))),
-        getDocs(
-          query(
-            usersRef,
-            where("usernameLower", ">=", term),
-            where("usernameLower", "<=", `${term}\uf8ff`),
-            limit(8)
-          )
-        )
+      const emailTerm = normalizeSearch(searchTerm);
+      const [emailMatches, exactUsernameMatches, prefixUsernameMatches] = await Promise.all([
+        getDocs(query(usersRef, where("emailLower", "==", emailTerm), limit(8))),
+        getDocs(query(usersRef, where("usernameLower", "==", term), limit(8))),
+        getDocs(query(usersRef, where("usernamePrefixes", "array-contains", term), limit(12)))
       ]);
       const existing = new Set(friends.map(friendKey));
-      const merged = [...emailMatches.docs, ...usernameMatches.docs]
+      const merged = [...emailMatches.docs, ...exactUsernameMatches.docs, ...prefixUsernameMatches.docs]
         .map((item) => ({ uid: item.id, ...item.data() }))
-        .filter((item, index, items) => item.uid !== user.uid && !existing.has(item.uid) && items.findIndex((candidate) => candidate.uid === item.uid) === index);
+        .filter(
+          (item, index, items) =>
+            item.uid !== user.uid &&
+            !existing.has(item.uid) &&
+            items.findIndex((candidate) => candidate.uid === item.uid) === index
+        );
       setResults(merged);
       if (!merged.length) setSearchError("No matching Dash-Snatch accounts found.");
     } catch {
-      setSearchError("Friend search needs Firestore enabled and readable user profiles.");
+      setSearchError("Friend search needs Firestore enabled with readable user profiles.");
     } finally {
       setIsSearching(false);
     }
@@ -1499,7 +1557,8 @@ function FriendsPage({ profile, setProfile, user }) {
         {
           uid: friend.uid,
           username: friend.username || friend.email || "Friend",
-          email: friend.email || ""
+          email: friend.email || "",
+          avatarUrl: friend.avatarUrl || ""
         }
       ]
     });
@@ -1537,9 +1596,11 @@ function FriendsPage({ profile, setProfile, user }) {
         <div className="friends-list search-results">
           {results.map((friend) => (
             <div className="friend-row" key={friend.uid}>
-              <Users size={18} />
-              <strong>{friend.username || friend.email}</strong>
-              <small>{friend.email}</small>
+              <Avatar name={friend.username || friend.email} src={friend.avatarUrl} />
+              <div>
+                <strong>{friend.username || friend.email}</strong>
+                <small>{friend.email || `@${friend.usernameLower}`}</small>
+              </div>
               <button type="button" onClick={() => addFriend(friend)}>
                 Add
               </button>
@@ -1551,9 +1612,11 @@ function FriendsPage({ profile, setProfile, user }) {
         <div className="friends-list">
           {friends.map((friend) => (
             <div className="friend-row" key={friendKey(friend)}>
-              <Users size={18} />
-              <strong>{friendName(friend)}</strong>
-              <small>{typeof friend === "string" ? "Added locally" : friend.email}</small>
+              <Avatar name={friendName(friend)} src={friendAvatar(friend)} />
+              <div>
+                <strong>{friendName(friend)}</strong>
+                <small>{typeof friend === "string" ? "Added locally" : friend.email}</small>
+              </div>
               <button type="button" onClick={() => removeFriend(friend)}>
                 Remove
               </button>
@@ -1564,7 +1627,7 @@ function FriendsPage({ profile, setProfile, user }) {
         <EmptyState
           icon={Users}
           title="No friends added"
-          body="Add people you know by username or email. Real account search can be connected once user profiles are stored in Firestore."
+          body="Search by username or email to add people you know."
           href="/friends.html"
           action="Friends"
         />
@@ -1577,11 +1640,13 @@ function LeadersPage({ profile, stats }) {
   const rows = [
     {
       name: profile.username || "You",
+      avatarUrl: profile.avatarUrl,
       xp: stats.xp,
       detail: `${stats.valid} valid`
     },
     ...(profile.friends ?? []).map((friend) => ({
       name: friendName(friend),
+      avatarUrl: friendAvatar(friend),
       xp: 0,
       detail: "friend"
     }))
@@ -1600,6 +1665,7 @@ function LeadersPage({ profile, stats }) {
         {rows.map((row, index) => (
           <div className="leaderboard-single" key={`${row.name}-${index}`}>
             <span>{index + 1}</span>
+            <Avatar name={row.name} src={row.avatarUrl} />
             <strong>{row.name}</strong>
             <small>{row.xp} XP</small>
             <em>{row.detail}</em>
@@ -1619,11 +1685,26 @@ function ProfilePage({ deleteSighting, profile, setProfile, stats, sightings, us
           <Award size={22} />
         </div>
         <div className="profile-form">
+          <div className="profile-preview">
+            <Avatar name={profile.username || user.displayName || user.email} src={profile.avatarUrl || user.photoURL} size="lg" />
+            <div>
+              <strong>{profile.username || user.displayName || "Hunter"}</strong>
+              <p>This avatar appears in friend search, feeds, and leaderboards.</p>
+            </div>
+          </div>
           <label>
             <span>Username</span>
             <input
               value={profile.username}
               onChange={(event) => setProfile({ ...profile, username: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Avatar image URL</span>
+            <input
+              value={profile.avatarUrl || ""}
+              placeholder="https://example.com/avatar.jpg"
+              onChange={(event) => setProfile({ ...profile, avatarUrl: event.target.value })}
             />
           </label>
           <label>
