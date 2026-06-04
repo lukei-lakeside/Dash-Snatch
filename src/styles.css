@@ -518,6 +518,28 @@ p {
   gap: 10px;
 }
 
+.friend-section {
+  margin-top: 16px;
+}
+
+.friend-section h3,
+.friend-section-header h3 {
+  font-size: 15px;
+}
+
+.friend-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.friend-section-header span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
 .friend-row {
   display: grid;
   grid-template-columns: 42px 1fr max-content;
@@ -548,6 +570,12 @@ p {
   color: var(--secondary);
   background: var(--input-bg);
   font-weight: 800;
+}
+
+.friend-row button:disabled {
+  cursor: default;
+  opacity: 0.62;
+  color: var(--muted);
 }
 
 
@@ -1099,6 +1127,49 @@ select {
   color: var(--primary);
 }
 
+.badge-preview {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--soft-bg);
+}
+
+.badge-preview strong,
+.badge-preview span {
+  display: block;
+}
+
+.badge-preview strong {
+  font-size: 14px;
+}
+
+.badge-preview span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.mini-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.mini-badges span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent), white 48%);
+  border-radius: 999px;
+  padding: 0 10px;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 12px;
+  font-weight: 850;
+}
+
 .submit-button {
   width: 100%;
   margin-top: 12px;
@@ -1318,6 +1389,71 @@ select {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
+}
+
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.badge-card {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 12px;
+  align-items: start;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--soft-bg);
+  opacity: 0.72;
+}
+
+.badge-card.unlocked {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--accent), white 40%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent), transparent 88%), transparent),
+    var(--soft-bg);
+}
+
+.badge-medal {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+}
+
+.badge-card.unlocked .badge-medal {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.badge-card strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.badge-card small {
+  display: inline-flex;
+  margin-top: 8px;
+  color: var(--primary-dark);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+:root[data-theme="night"] .mini-badges span,
+:root[data-theme="night"] .badge-card.unlocked .badge-medal {
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.14);
+  border-color: rgba(251, 191, 36, 0.4);
 }
 
 .stat {

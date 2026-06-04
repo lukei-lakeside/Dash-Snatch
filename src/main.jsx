@@ -61,7 +61,8 @@ const googleProvider = new GoogleAuthProvider();
 const DASH_REFERENCES = [
   "/dash-references/dash-1.png",
   "/dash-references/dash-2.png",
-  "/dash-references/dash-3.png"
+  "/dash-references/dash-3.png",
+  "/dash-references/dash-4.png"
 ];
 
 const NAV_ITEMS = [
@@ -90,6 +91,41 @@ const QUALITY = [
   { name: "Epic", xp: 100, color: "#a855f7", threshold: 0.92 },
   { name: "Legendary", xp: 250, color: "#f59e0b", threshold: 0.96 }
 ];
+
+const BADGES = [
+  {
+    id: "verified-bounty",
+    name: "Bounty Confirmed",
+    description: "Submit any verified Dash capture.",
+    aiRequired: false
+  },
+  {
+    id: "rare-proof",
+    name: "Clean Proof",
+    description: "Submit a Rare or better Dash match.",
+    aiRequired: false
+  },
+  {
+    id: "dash-shades",
+    name: "Shades Spotted",
+    description: "AI verifies Dash wearing sunglasses.",
+    aiRequired: true
+  },
+  {
+    id: "dash-selfie",
+    name: "Selfie Snatch",
+    description: "AI verifies you took a selfie with Dash.",
+    aiRequired: true
+  },
+  {
+    id: "dash-sleeper",
+    name: "Sleepy Bounty",
+    description: "AI verifies Dash resting or asleep.",
+    aiRequired: true
+  }
+];
+
+const AI_BADGE_IDS = new Set(BADGES.filter((badge) => badge.aiRequired).map((badge) => badge.id));
 
 const DEFAULT_PROFILE = {
   username: "You",
@@ -236,6 +272,57 @@ function getQualityByConfidence(confidence) {
 
 function qualityMeta(name) {
   return QUALITY.find((quality) => quality.name === name) ?? QUALITY[0];
+}
+
+function badgeMeta(id) {
+  return BADGES.find((badge) => badge.id === id);
+}
+
+function baseBadgeIds(validation) {
+  if (!validation?.valid) return [];
+  const badgeIds = ["verified-bounty"];
+  if (validation.confidence >= 0.86) badgeIds.push("rare-proof");
+  return badgeIds;
+}
+
+async function scanAiBadges(imageDataUrl) {
+  const endpoint = import.meta.env.VITE_AI_BADGE_ENDPOINT;
+  if (!endpoint) {
+    return {
+      badgeIds: [],
+      status: "Special badges need an AI badge endpoint."
+    };
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image: imageDataUrl,
+        badges: BADGES.filter((badge) => badge.aiRequired).map(({ id, name, description }) => ({
+          id,
+          name,
+          description
+        }))
+      })
+    });
+
+    if (!response.ok) throw new Error("AI badge scan failed");
+    const payload = await response.json();
+    const badgeIds = (payload.badgeIds || payload.badges || [])
+      .map((item) => (typeof item === "string" ? item : item.id))
+      .filter((id) => AI_BADGE_IDS.has(id));
+    return {
+      badgeIds: [...new Set(badgeIds)],
+      status: badgeIds.length ? "AI badge verified." : "AI checked. No special badge found."
+    };
+  } catch {
+    return {
+      badgeIds: [],
+      status: "AI badge scan unavailable."
+    };
+  }
 }
 
 function friendKey(friend) {
@@ -1204,6 +1291,7 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
   const [locationName, setLocationName] = useState("No GPS fix");
   const [coords, setCoords] = useState(null);
   const [validation, setValidation] = useState(null);
+  const [badgeScanStatus, setBadgeScanStatus] = useState("");
   const [isLocating, setIsLocating] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
 
@@ -1211,6 +1299,7 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
     if (!file) return;
     setIsChecking(true);
     setValidation(null);
+    setBadgeScanStatus("");
     const originalDataUrl = await fileToDataUrl(file);
     const dataUrl = await resizeImageDataUrl(originalDataUrl);
     setPhotoPreview(dataUrl);
@@ -1225,19 +1314,28 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
       const isReferenceImage = confidence >= 0.995;
       const valid = confidence >= 0.72 && !isReferenceImage;
       const quality = getQualityByConfidence(confidence);
-      setValidation({
+      const badgeValidation = {
         valid,
         confidence,
         quality: isReferenceImage ? "Reference image" : valid ? quality.name : "No match",
         xp: valid ? quality.xp : 0,
         isReferenceImage
+      };
+      const aiScan = valid ? await scanAiBadges(dataUrl) : { badgeIds: [], status: "" };
+      const badgeIds = [...new Set([...baseBadgeIds(badgeValidation), ...aiScan.badgeIds])];
+      if (aiScan.status) setBadgeScanStatus(aiScan.status);
+      setValidation({
+        ...badgeValidation,
+        badgeIds,
+        aiBadgeStatus: aiScan.status
       });
     } catch {
       setValidation({
         valid: false,
         confidence: 0,
         quality: "No match",
-        xp: 0
+        xp: 0,
+        badgeIds: []
       });
     } finally {
       setIsChecking(false);
@@ -1281,6 +1379,8 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
       quality: validation.quality,
       xp: validation.xp,
       confidence: validation.confidence,
+      badgeIds: validation.badgeIds ?? [],
+      aiBadgeStatus: validation.aiBadgeStatus || badgeScanStatus,
       privacy,
       image: photoPreview,
       valid: true,
@@ -1294,6 +1394,7 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
     setPhotoPreview("");
     setPhotoName("");
     setValidation(null);
+    setBadgeScanStatus("");
   }
 
   return (
@@ -1348,6 +1449,9 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
         </div>
 
         <ValidationCard validation={validation} isChecking={isChecking} />
+        {validation?.valid && (
+          <BadgePreview badgeIds={validation.badgeIds ?? []} status={badgeScanStatus || validation.aiBadgeStatus} />
+        )}
 
         <button
           className={`submit-button ${validation?.valid && photoPreview && coords ? "ready-submit" : ""}`}
@@ -1377,6 +1481,25 @@ function HuntPage({ addSighting, onCelebrate, profile, referenceSignatures, refe
           Dash Bottenberg is the bounty. These reference photos help confirm that a capture is really him.
         </p>
       </section>
+    </div>
+  );
+}
+
+function BadgePreview({ badgeIds, status }) {
+  const unlocked = badgeIds.map(badgeMeta).filter(Boolean);
+  return (
+    <div className="badge-preview">
+      <div>
+        <strong>{unlocked.length ? "Badges ready" : "Badge scan complete"}</strong>
+        <span>{status || "Verified Dash captures can unlock badges."}</span>
+      </div>
+      {unlocked.length > 0 && (
+        <div className="mini-badges">
+          {unlocked.map((badge) => (
+            <span key={badge.id}>{badge.name}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1572,10 +1695,9 @@ function FriendsPage({ allUsers, profile, setProfile, user }) {
   const [results, setResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
-  const [showingAllUsers, setShowingAllUsers] = useState(false);
   const friends = profile.friends ?? [];
   const existingFriendIds = new Set(friends.map(friendKey));
-  const discoverableUsers = allUsers.filter((item) => item.uid !== user.uid && !existingFriendIds.has(item.uid));
+  const userbase = allUsers.filter((item) => item.uid !== user.uid);
 
   async function searchFriends(event) {
     event.preventDefault();
@@ -1584,7 +1706,6 @@ function FriendsPage({ allUsers, profile, setProfile, user }) {
     setIsSearching(true);
     setSearchError("");
     setResults([]);
-    setShowingAllUsers(false);
 
     try {
       const usersRef = collection(firebaseDb, "users");
@@ -1594,13 +1715,11 @@ function FriendsPage({ allUsers, profile, setProfile, user }) {
         getDocs(query(usersRef, where("usernameLower", "==", term), limit(8))),
         getDocs(query(usersRef, where("usernamePrefixes", "array-contains", term), limit(12)))
       ]);
-      const existing = new Set(friends.map(friendKey));
       const merged = [...emailMatches.docs, ...exactUsernameMatches.docs, ...prefixUsernameMatches.docs]
         .map((item) => ({ uid: item.id, ...item.data() }))
         .filter(
           (item, index, items) =>
             item.uid !== user.uid &&
-            !existing.has(item.uid) &&
             items.findIndex((candidate) => candidate.uid === item.uid) === index
         );
       setResults(merged);
@@ -1633,6 +1752,22 @@ function FriendsPage({ allUsers, profile, setProfile, user }) {
     setProfile({ ...profile, friends: friends.filter((item) => friendKey(item) !== friendKey(friend)) });
   }
 
+  function renderUserRow(friend) {
+    const isFriend = existingFriendIds.has(friend.uid);
+    return (
+      <div className="friend-row" key={friend.uid}>
+        <Avatar name={friend.username || friend.email} src={friend.avatarUrl} />
+        <div>
+          <strong>{friend.username || friend.email}</strong>
+          <small>{friend.email || `@${friend.usernameLower}`}</small>
+        </div>
+        <button type="button" onClick={() => addFriend(friend)} disabled={isFriend}>
+          {isFriend ? "Added" : "Add"}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <section className="panel full-panel">
       <div className="panel-header">
@@ -1658,42 +1793,12 @@ function FriendsPage({ allUsers, profile, setProfile, user }) {
       {searchError && <div className="auth-error">{searchError}</div>}
       {results.length > 0 && (
         <div className="friends-list search-results">
-          {results.map((friend) => (
-            <div className="friend-row" key={friend.uid}>
-              <Avatar name={friend.username || friend.email} src={friend.avatarUrl} />
-              <div>
-                <strong>{friend.username || friend.email}</strong>
-                <small>{friend.email || `@${friend.usernameLower}`}</small>
-              </div>
-              <button type="button" onClick={() => addFriend(friend)}>
-                Add
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {showingAllUsers && (
-        <div className="friends-list search-results">
-          {discoverableUsers.length ? (
-            discoverableUsers.map((friend) => (
-              <div className="friend-row" key={friend.uid}>
-                <Avatar name={friend.username || friend.email} src={friend.avatarUrl} />
-                <div>
-                  <strong>{friend.username || friend.email}</strong>
-                  <small>{friend.email || `@${friend.usernameLower}`}</small>
-                </div>
-                <button type="button" onClick={() => addFriend(friend)}>
-                  Add
-                </button>
-              </div>
-            ))
-          ) : (
-            <p className="fine-print">No other readable user profiles found yet.</p>
-          )}
+          {results.map(renderUserRow)}
         </div>
       )}
       {friends.length ? (
-        <div className="friends-list">
+        <div className="friends-list friend-section">
+          <h3>Your friends</h3>
           {friends.map((friend) => (
             <div className="friend-row" key={friendKey(friend)}>
               <Avatar name={friendName(friend)} src={friendAvatar(friend)} />
@@ -1707,16 +1812,24 @@ function FriendsPage({ allUsers, profile, setProfile, user }) {
             </div>
           ))}
         </div>
-      ) : !showingAllUsers ? (
+      ) : (
         <div className="empty-state">
           <Users size={34} />
           <strong>No friends added</strong>
-          <p>Search by username, or browse every readable Dash-Snatch profile.</p>
-          <button className="primary-button" type="button" onClick={() => setShowingAllUsers(true)}>
-            Show all users
-          </button>
+          <p>Add people directly from the userbase below.</p>
         </div>
-      ) : null}
+      )}
+      <div className="friends-list friend-section">
+        <div className="friend-section-header">
+          <h3>Userbase</h3>
+          <span>{userbase.length} users</span>
+        </div>
+        {userbase.length ? userbase.map(renderUserRow) : (
+          <p className="fine-print">
+            No readable user profiles found. Check Firestore rules for authenticated reads on the users collection.
+          </p>
+        )}
+      </div>
     </section>
   );
 }
@@ -1796,6 +1909,9 @@ function LeadersPage({ allSightings, allUsers, profile, stats, user }) {
 }
 
 function ProfilePage({ deleteSighting, profile, setProfile, stats, sightings, user }) {
+  const ownedSightings = sightings.filter((item) => item.ownerUid === user.uid);
+  const unlockedBadgeIds = new Set(ownedSightings.flatMap((item) => item.badgeIds ?? []));
+
   return (
     <div className="page-grid profile-grid">
       <section className="panel stats-panel">
@@ -1850,11 +1966,37 @@ function ProfilePage({ deleteSighting, profile, setProfile, stats, sightings, us
       </section>
       <section className="panel full-width">
         <div className="panel-header">
+          <div>
+            <h2>Badges</h2>
+            <p>Special badges unlock only when the capture has a verified Dash match.</p>
+          </div>
+          <Award size={22} />
+        </div>
+        <div className="badge-grid">
+          {BADGES.map((badge) => {
+            const unlocked = unlockedBadgeIds.has(badge.id);
+            return (
+              <article className={unlocked ? "badge-card unlocked" : "badge-card"} key={badge.id}>
+                <div className="badge-medal">
+                  {unlocked ? <CheckCircle2 size={22} /> : <Lock size={22} />}
+                </div>
+                <div>
+                  <strong>{badge.name}</strong>
+                  <p>{badge.description}</p>
+                  {badge.aiRequired && <small>AI verification required</small>}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+      <section className="panel full-width">
+        <div className="panel-header">
           <h2>Recent submissions</h2>
           <Star size={22} />
         </div>
-        {sightings.filter((item) => item.ownerUid === user.uid).length ? (
-          sightings.filter((item) => item.ownerUid === user.uid).slice(0, 5).map((item) => (
+        {ownedSightings.length ? (
+          ownedSightings.slice(0, 5).map((item) => (
             <div className="submission-row" key={item.id}>
               <img src={item.image} alt="" />
               <strong>{item.title}</strong>
