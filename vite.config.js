@@ -14,6 +14,7 @@ export default defineConfig({
         hunt: resolve(root, "hunt.html"),
         map: resolve(root, "map.html"),
         feed: resolve(root, "feed.html"),
+        friends: resolve(root, "friends.html"),
         leaders: resolve(root, "leaders.html"),
         profile: resolve(root, "profile.html"),
         settings: resolve(root, "settings.html")

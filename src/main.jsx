@@ -20,6 +20,7 @@ import {
   Star,
   Trophy,
   Upload,
+  UserPlus,
   UserRound,
   Users,
   XCircle
@@ -55,6 +56,7 @@ const NAV_ITEMS = [
   { label: "Hunt", path: "/hunt.html", icon: Crosshair },
   { label: "Map", path: "/map.html", icon: MapPinned },
   { label: "Feed", path: "/feed.html", icon: Radio },
+  { label: "Friends", path: "/friends.html", icon: UserPlus },
   { label: "Leaders", path: "/leaders.html", icon: Trophy },
   { label: "Profile", path: "/profile.html", icon: UserRound },
   { label: "Settings", path: "/settings.html", icon: Settings }
@@ -324,9 +326,27 @@ function useAuthUser() {
   return authState;
 }
 
+function usePageNavigation() {
+  const [page, setPage] = useState(getPage);
+
+  useEffect(() => {
+    const onPopState = () => setPage(getPage());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const navigate = (path) => {
+    window.history.pushState(null, "", path);
+    setPage(getPage());
+    window.scrollTo(0, 0);
+  };
+
+  return { page, navigate };
+}
+
 function App() {
   const { loading: authLoading, user } = useAuthUser();
-  const page = getPage();
+  const { page, navigate } = usePageNavigation();
   const { sightings, profile, setProfile, theme, setTheme, addSighting, clearSightings } = useAppState();
   const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete(user));
   const { referenceSignatures, status: referenceStatus } = useDashReferences();
@@ -379,9 +399,9 @@ function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar page={page} />
+      <Sidebar navigate={navigate} page={page} />
       <main className="workspace">
-        <Header currentRank={currentRank} playerXp={playerXp} user={user} />
+        <Header currentRank={currentRank} navigate={navigate} playerXp={playerXp} user={user} />
         <RankStrip currentRank={currentRank} nextRank={nextRank} progress={progress} />
         {page === "hunt" && (
           <HuntPage
@@ -393,6 +413,7 @@ function App() {
         )}
         {page === "map" && <MapPage sightings={sightings} />}
         {page === "feed" && <FeedPage sightings={sightings} />}
+        {page === "friends" && <FriendsPage profile={profile} setProfile={setProfile} />}
         {page === "leaders" && <LeadersPage profile={profile} stats={stats} />}
         {page === "profile" && (
           <ProfilePage profile={profile} setProfile={setProfile} stats={stats} sightings={sightings} />
@@ -412,16 +433,32 @@ function App() {
   );
 }
 
-function Sidebar({ page }) {
+function Sidebar({ navigate, page }) {
   return (
     <aside className="sidebar">
-      <a className="brand" href="/hunt.html" aria-label="Dash-Snatch home">
+      <a
+        className="brand"
+        href="/hunt.html"
+        aria-label="Dash-Snatch home"
+        onClick={(event) => {
+          event.preventDefault();
+          navigate("/hunt.html");
+        }}
+      >
         <img className="logo-mark" src="/dash-logo.png" alt="" />
         <span>Dash-Snatch</span>
       </a>
       <nav className="nav-list" aria-label="Primary navigation">
         {NAV_ITEMS.map(({ label, path, icon: Icon }) => (
-          <a className={page === label.toLowerCase() ? "active" : ""} href={path} key={label}>
+          <a
+            className={page === label.toLowerCase() ? "active" : ""}
+            href={path}
+            key={label}
+            onClick={(event) => {
+              event.preventDefault();
+              navigate(path);
+            }}
+          >
             {React.createElement(Icon, { size: 18 })}
             <span>{label}</span>
           </a>
@@ -775,7 +812,7 @@ function ThemePicker({ theme, setTheme }) {
   );
 }
 
-function Header({ currentRank, playerXp, user }) {
+function Header({ currentRank, navigate, playerXp, user }) {
   return (
     <header className="topbar">
       <div>
@@ -787,16 +824,31 @@ function Header({ currentRank, playerXp, user }) {
           <Search size={17} />
           <input placeholder="Search your sightings" />
         </label>
-        <a className="rank-chip" href="/profile.html" style={{ "--rank": currentRank.color }}>
+        <a
+          className="rank-chip"
+          href="/profile.html"
+          onClick={(event) => {
+            event.preventDefault();
+            navigate("/profile.html");
+          }}
+          style={{ "--rank": currentRank.color }}
+        >
           <Medal size={18} />
           <span>{currentRank.name}</span>
           <strong>{playerXp} XP</strong>
         </a>
-        <a className="primary-button" href="/hunt.html">
+        <a
+          className="primary-button"
+          href="/hunt.html"
+          onClick={(event) => {
+            event.preventDefault();
+            navigate("/hunt.html");
+          }}
+        >
           <Camera size={18} />
           Capture
         </a>
-        <button className="ghost-button" type="button" onClick={() => signOut(firebaseAuth)}>
+        <button className="logout-button" type="button" onClick={() => signOut(firebaseAuth)}>
           {user.displayName || "Sign out"}
         </button>
       </div>
@@ -1150,6 +1202,70 @@ function FeedPage({ sightings }) {
           body="Validated Dash photos will appear here after submission."
           href="/hunt.html"
           action="Capture a sighting"
+        />
+      )}
+    </section>
+  );
+}
+
+function FriendsPage({ profile, setProfile }) {
+  const [friendInput, setFriendInput] = useState("");
+  const friends = profile.friends ?? [];
+
+  function addFriend(event) {
+    event.preventDefault();
+    const friend = friendInput.trim();
+    if (!friend || friends.includes(friend)) return;
+    setProfile({ ...profile, friends: [...friends, friend] });
+    setFriendInput("");
+  }
+
+  function removeFriend(friend) {
+    setProfile({ ...profile, friends: friends.filter((item) => item !== friend) });
+  }
+
+  return (
+    <section className="panel full-panel">
+      <div className="panel-header">
+        <div>
+          <h2>Friends</h2>
+          <p>Add real people you know by username or email. They will appear on your leaderboard.</p>
+        </div>
+        <UserPlus size={22} />
+      </div>
+      <form className="friend-page-form" onSubmit={addFriend}>
+        <label>
+          <span>Friend username or email</span>
+          <div className="friend-entry">
+            <input
+              value={friendInput}
+              onChange={(event) => setFriendInput(event.target.value)}
+              placeholder="friend@example.com"
+            />
+            <button type="submit">Add</button>
+          </div>
+        </label>
+      </form>
+      {friends.length ? (
+        <div className="friends-list">
+          {friends.map((friend) => (
+            <div className="friend-row" key={friend}>
+              <Users size={18} />
+              <strong>{friend}</strong>
+              <small>Added locally</small>
+              <button type="button" onClick={() => removeFriend(friend)}>
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          icon={Users}
+          title="No friends added"
+          body="Add people you know by username or email. Real account search can be connected once user profiles are stored in Firestore."
+          href="/friends.html"
+          action="Friends"
         />
       )}
     </section>

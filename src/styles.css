@@ -263,7 +263,8 @@ p {
 .submit-button,
 .map-tools button,
 .text-button,
-.ghost-button {
+.ghost-button,
+.logout-button {
   border: 0;
   border-radius: 8px;
   min-height: 42px;
@@ -301,6 +302,19 @@ p {
   border: 1px solid var(--border);
   color: #475569;
   background: var(--input-bg);
+}
+
+.logout-button {
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--secondary), white 45%);
+  color: var(--secondary);
+  background: color-mix(in srgb, var(--secondary), transparent 90%);
+}
+
+:root[data-theme="night"] .logout-button {
+  color: #fbcfe8;
+  background: rgba(244, 114, 182, 0.14);
+  border-color: rgba(244, 114, 182, 0.42);
 }
 
 .auth-shell {
@@ -434,6 +448,68 @@ p {
   color: var(--primary-dark);
   background: color-mix(in srgb, var(--primary), transparent 90%);
   font-weight: 850;
+}
+
+.friend-page-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.friend-page-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.friend-page-form label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.friend-entry input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: inherit;
+  background: var(--input-bg);
+}
+
+.friends-list {
+  display: grid;
+  gap: 10px;
+}
+
+.friend-row {
+  display: grid;
+  grid-template-columns: 24px 1fr max-content max-content;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--soft-bg);
+}
+
+.friend-row svg {
+  color: var(--primary);
+}
+
+.friend-row small {
+  color: var(--muted);
+}
+
+.friend-row button {
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--secondary);
+  background: var(--input-bg);
+  font-weight: 800;
 }
 
 
