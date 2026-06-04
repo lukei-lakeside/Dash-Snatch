@@ -373,6 +373,8 @@ function useDashReferences() {
 
 function useAppState(user) {
   const [sightings, setSightings] = useState(getStoredSightings);
+  const [allSightings, setAllSightings] = useState(getStoredSightings);
+  const [allUsers, setAllUsers] = useState([]);
   const [profile, setProfileState] = useState(getStoredProfile);
   const [theme, setThemeState] = useState(getStoredTheme);
 
@@ -395,6 +397,47 @@ function useAppState(user) {
         if (remoteProfile.theme) setThemeState(remoteProfile.theme);
       },
       () => {}
+    );
+
+    return unsubscribe;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const usersQuery = query(collection(firebaseDb, "users"), limit(100));
+    const unsubscribe = onSnapshot(
+      usersQuery,
+      (snapshot) => {
+        const users = snapshot.docs
+          .map((item) => ({ uid: item.id, ...item.data() }))
+          .sort((a, b) => friendName(a).localeCompare(friendName(b)));
+        setAllUsers(users);
+      },
+      () => setAllUsers([])
+    );
+
+    return unsubscribe;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return undefined;
+
+    const sightingsQuery = query(collection(firebaseDb, "sightings"), limit(250));
+    const unsubscribe = onSnapshot(
+      sightingsQuery,
+      (snapshot) => {
+        const remoteSightings = snapshot.docs
+          .map((item) => ({ id: item.id, ...item.data() }))
+          .filter((item) => item.ownerUid === user.uid || item.privacy !== "Private")
+          .sort((a, b) => {
+            const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime();
+            const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime();
+            return (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime);
+          });
+        setAllSightings(remoteSightings);
+      },
+      () => setAllSightings(getStoredSightings())
     );
 
     return unsubscribe;
@@ -483,7 +526,18 @@ function useAppState(user) {
     saveSightings([]);
   };
 
-  return { sightings, profile, setProfile, theme, setTheme, addSighting, deleteSighting, clearSightings };
+  return {
+    allSightings,
+    allUsers,
+    sightings,
+    profile,
+    setProfile,
+    theme,
+    setTheme,
+    addSighting,
+    deleteSighting,
+    clearSightings
+  };
 }
 
 function useAuthUser() {
@@ -521,6 +575,8 @@ function App() {
   const { loading: authLoading, user } = useAuthUser();
   const { page, navigate } = usePageNavigation();
   const {
+    allSightings,
+    allUsers,
     sightings,
     profile,
     setProfile,
@@ -606,8 +662,12 @@ function App() {
           )}
           {page === "map" && <MapPage sightings={sightings} />}
           {page === "feed" && <FeedPage deleteSighting={deleteSighting} sightings={sightings} user={user} />}
-          {page === "friends" && <FriendsPage profile={profile} setProfile={setProfile} user={user} />}
-          {page === "leaders" && <LeadersPage profile={profile} stats={stats} />}
+          {page === "friends" && (
+            <FriendsPage allUsers={allUsers} profile={profile} setProfile={setProfile} user={user} />
+          )}
+          {page === "leaders" && (
+            <LeadersPage allSightings={allSightings} allUsers={allUsers} profile={profile} stats={stats} user={user} />
+          )}
           {page === "profile" && (
             <ProfilePage
               deleteSighting={deleteSighting}
@@ -1507,12 +1567,15 @@ function FeedPage({ deleteSighting, sightings, user }) {
   );
 }
 
-function FriendsPage({ profile, setProfile, user }) {
+function FriendsPage({ allUsers, profile, setProfile, user }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
+  const [showingAllUsers, setShowingAllUsers] = useState(false);
   const friends = profile.friends ?? [];
+  const existingFriendIds = new Set(friends.map(friendKey));
+  const discoverableUsers = allUsers.filter((item) => item.uid !== user.uid && !existingFriendIds.has(item.uid));
 
   async function searchFriends(event) {
     event.preventDefault();
@@ -1521,6 +1584,7 @@ function FriendsPage({ profile, setProfile, user }) {
     setIsSearching(true);
     setSearchError("");
     setResults([]);
+    setShowingAllUsers(false);
 
     try {
       const usersRef = collection(firebaseDb, "users");
@@ -1608,6 +1672,26 @@ function FriendsPage({ profile, setProfile, user }) {
           ))}
         </div>
       )}
+      {showingAllUsers && (
+        <div className="friends-list search-results">
+          {discoverableUsers.length ? (
+            discoverableUsers.map((friend) => (
+              <div className="friend-row" key={friend.uid}>
+                <Avatar name={friend.username || friend.email} src={friend.avatarUrl} />
+                <div>
+                  <strong>{friend.username || friend.email}</strong>
+                  <small>{friend.email || `@${friend.usernameLower}`}</small>
+                </div>
+                <button type="button" onClick={() => addFriend(friend)}>
+                  Add
+                </button>
+              </div>
+            ))
+          ) : (
+            <p className="fine-print">No other readable user profiles found yet.</p>
+          )}
+        </div>
+      )}
       {friends.length ? (
         <div className="friends-list">
           {friends.map((friend) => (
@@ -1623,52 +1707,87 @@ function FriendsPage({ profile, setProfile, user }) {
             </div>
           ))}
         </div>
-      ) : (
-        <EmptyState
-          icon={Users}
-          title="No friends added"
-          body="Search by username or email to add people you know."
-          href="/friends.html"
-          action="Friends"
-        />
-      )}
+      ) : !showingAllUsers ? (
+        <div className="empty-state">
+          <Users size={34} />
+          <strong>No friends added</strong>
+          <p>Search by username, or browse every readable Dash-Snatch profile.</p>
+          <button className="primary-button" type="button" onClick={() => setShowingAllUsers(true)}>
+            Show all users
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
 
-function LeadersPage({ profile, stats }) {
-  const rows = [
-    {
-      name: profile.username || "You",
-      avatarUrl: profile.avatarUrl,
-      xp: stats.xp,
-      detail: `${stats.valid} valid`
-    },
-    ...(profile.friends ?? []).map((friend) => ({
-      name: friendName(friend),
-      avatarUrl: friendAvatar(friend),
+function LeadersPage({ allSightings, allUsers, profile, stats, user }) {
+  const rows = useMemo(() => {
+    const usersById = new Map(
+      allUsers.map((item) => [
+        item.uid,
+        {
+          uid: item.uid,
+          name: item.username || item.email || "Hunter",
+          avatarUrl: item.avatarUrl || "",
+          xp: 0,
+          valid: 0
+        }
+      ])
+    );
+
+    usersById.set(user.uid, {
+      uid: user.uid,
+      name: profile.username || user.displayName || user.email || "You",
+      avatarUrl: profile.avatarUrl || user.photoURL || "",
       xp: 0,
-      detail: "friend"
-    }))
-  ];
+      valid: 0
+    });
+
+    allSightings.forEach((sighting) => {
+      if (!sighting.ownerUid) return;
+      const existing =
+        usersById.get(sighting.ownerUid) ??
+        {
+          uid: sighting.ownerUid,
+          name: sighting.ownerUsername || "Hunter",
+          avatarUrl: sighting.ownerAvatarUrl || "",
+          xp: 0,
+          valid: 0
+        };
+      existing.xp += Number(sighting.xp) || 0;
+      if (sighting.valid) existing.valid += 1;
+      if (!existing.avatarUrl && sighting.ownerAvatarUrl) existing.avatarUrl = sighting.ownerAvatarUrl;
+      if (existing.name === "Hunter" && sighting.ownerUsername) existing.name = sighting.ownerUsername;
+      usersById.set(sighting.ownerUid, existing);
+    });
+
+    const current = usersById.get(user.uid);
+    if (current && current.xp < stats.xp) {
+      current.xp = stats.xp;
+      current.valid = stats.valid;
+    }
+
+    return [...usersById.values()].sort((a, b) => b.xp - a.xp || a.name.localeCompare(b.name));
+  }, [allSightings, allUsers, profile.avatarUrl, profile.username, stats.valid, stats.xp, user]);
 
   return (
     <section className="panel full-panel">
       <div className="panel-header">
         <div>
           <h2>Leaderboard</h2>
-          <p>Your leaderboard uses your account and the real friends you added.</p>
+          <p>Everyone with a readable Dash-Snatch profile appears here.</p>
         </div>
         <Users size={22} />
       </div>
       <div className="leaderboard-list">
         {rows.map((row, index) => (
-          <div className="leaderboard-single" key={`${row.name}-${index}`}>
+          <div className="leaderboard-single" key={row.uid || `${row.name}-${index}`}>
             <span>{index + 1}</span>
             <Avatar name={row.name} src={row.avatarUrl} />
             <strong>{row.name}</strong>
             <small>{row.xp} XP</small>
-            <em>{row.detail}</em>
+            <em>{row.valid} valid</em>
           </div>
         ))}
       </div>
