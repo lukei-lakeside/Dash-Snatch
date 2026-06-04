@@ -6,9 +6,7 @@ import {
   Award,
   Camera,
   CheckCircle2,
-  Compass,
   Crosshair,
-  Flame,
   ImagePlus,
   LocateFixed,
   Lock,
@@ -30,8 +28,10 @@ import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signOut,
-  updateProfile
+  updateProfile,
+  GoogleAuthProvider
 } from "firebase/auth";
 import { firebaseApp, firebaseAuth } from "./firebase";
 import "./styles.css";
@@ -40,6 +40,10 @@ void firebaseApp;
 
 const STORAGE_KEY = "dash-snatch-real-sightings";
 const PROFILE_KEY = "dash-snatch-profile";
+const ONBOARDING_KEY = "dash-snatch-onboarded";
+const THEME_KEY = "dash-snatch-theme";
+
+const googleProvider = new GoogleAuthProvider();
 
 const DASH_REFERENCES = [
   "/dash-references/dash-1.png",
@@ -76,8 +80,16 @@ const QUALITY = [
 const DEFAULT_PROFILE = {
   username: "You",
   homeBase: "",
-  privateByDefault: false
+  privateByDefault: false,
+  theme: "light",
+  friends: []
 };
+
+const THEMES = [
+  { id: "light", label: "Light", description: "Clean bright scouting console." },
+  { id: "dusk", label: "Dusk", description: "Indigo and pink hunt mode." },
+  { id: "night", label: "Night", description: "Low-light map tracking." }
+];
 
 function firebaseMessage(error) {
   const code = error?.code ?? "";
@@ -122,6 +134,24 @@ function getStoredProfile() {
 
 function saveProfile(profile) {
   localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+}
+
+function getStoredTheme() {
+  return localStorage.getItem(THEME_KEY) || getStoredProfile().theme || "light";
+}
+
+function saveTheme(theme) {
+  localStorage.setItem(THEME_KEY, theme);
+  document.documentElement.dataset.theme = theme;
+}
+
+function getOnboardingComplete(user) {
+  if (!user) return false;
+  return localStorage.getItem(`${ONBOARDING_KEY}:${user.uid}`) === "true";
+}
+
+function saveOnboardingComplete(user) {
+  localStorage.setItem(`${ONBOARDING_KEY}:${user.uid}`, "true");
 }
 
 function getCurrentRank(xp) {
@@ -247,10 +277,24 @@ function useDashReferences() {
 function useAppState() {
   const [sightings, setSightings] = useState(getStoredSightings);
   const [profile, setProfileState] = useState(getStoredProfile);
+  const [theme, setThemeState] = useState(getStoredTheme);
+
+  useEffect(() => {
+    saveTheme(theme);
+  }, [theme]);
 
   const setProfile = (nextProfile) => {
+    const mergedProfile = { ...nextProfile, theme };
+    setProfileState(mergedProfile);
+    saveProfile(mergedProfile);
+  };
+
+  const setTheme = (nextTheme) => {
+    setThemeState(nextTheme);
+    const nextProfile = { ...profile, theme: nextTheme };
     setProfileState(nextProfile);
     saveProfile(nextProfile);
+    saveTheme(nextTheme);
   };
 
   const addSighting = (sighting) => {
@@ -264,7 +308,7 @@ function useAppState() {
     saveSightings([]);
   };
 
-  return { sightings, profile, setProfile, addSighting, clearSightings };
+  return { sightings, profile, setProfile, theme, setTheme, addSighting, clearSightings };
 }
 
 function useAuthUser() {
@@ -283,7 +327,8 @@ function useAuthUser() {
 function App() {
   const { loading: authLoading, user } = useAuthUser();
   const page = getPage();
-  const { sightings, profile, setProfile, addSighting, clearSightings } = useAppState();
+  const { sightings, profile, setProfile, theme, setTheme, addSighting, clearSightings } = useAppState();
+  const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete(user));
   const { referenceSignatures, status: referenceStatus } = useDashReferences();
   const playerXp = sightings.reduce((sum, item) => sum + item.xp, 0);
   const currentRank = getCurrentRank(playerXp);
@@ -304,12 +349,32 @@ function App() {
     };
   }, [playerXp, sightings]);
 
+  useEffect(() => {
+    setOnboardingComplete(getOnboardingComplete(user));
+  }, [user]);
+
   if (authLoading) {
     return <AuthLoading />;
   }
 
   if (!user) {
     return <AuthPage />;
+  }
+
+  if (!onboardingComplete) {
+    return (
+      <OnboardingPage
+        profile={profile}
+        setProfile={setProfile}
+        setTheme={setTheme}
+        theme={theme}
+        user={user}
+        onComplete={() => {
+          saveOnboardingComplete(user);
+          setOnboardingComplete(true);
+        }}
+      />
+    );
   }
 
   return (
@@ -337,7 +402,9 @@ function App() {
             clearSightings={clearSightings}
             profile={profile}
             setProfile={setProfile}
+            setTheme={setTheme}
             sightings={sightings}
+            theme={theme}
           />
         )}
       </main>
@@ -349,7 +416,7 @@ function Sidebar({ page }) {
   return (
     <aside className="sidebar">
       <a className="brand" href="/hunt.html" aria-label="Dash-Snatch home">
-        <span className="brand-mark">DS</span>
+        <img className="logo-mark" src="/dash-logo.png" alt="" />
         <span>Dash-Snatch</span>
       </a>
       <nav className="nav-list" aria-label="Primary navigation">
@@ -368,7 +435,7 @@ function AuthLoading() {
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <span className="brand-mark">DS</span>
+        <img className="auth-logo" src="/dash-logo.png" alt="" />
         <h1>Loading Dash-Snatch</h1>
         <p>Checking your sign-in session.</p>
       </section>
@@ -410,7 +477,7 @@ function AuthPage() {
     <main className="auth-shell">
       <section className="auth-card">
         <a className="auth-brand" href="/hunt.html" aria-label="Dash-Snatch">
-          <span className="brand-mark">DS</span>
+          <img className="logo-mark" src="/dash-logo.png" alt="" />
           <span>Dash-Snatch</span>
         </a>
         <div>
@@ -482,8 +549,252 @@ function AuthPage() {
             {isSubmitting ? "Working..." : isSignup ? "Create account" : "Sign in"}
           </button>
         </form>
+        <div className="auth-divider"><span>or</span></div>
+        <button
+          className="google-button"
+          type="button"
+          onClick={async () => {
+            setError("");
+            setIsSubmitting(true);
+            try {
+              await signInWithPopup(firebaseAuth, googleProvider);
+            } catch (authError) {
+              setError(firebaseMessage(authError));
+            } finally {
+              setIsSubmitting(false);
+            }
+          }}
+          disabled={isSubmitting}
+        >
+          <span>G</span>
+          Continue with Google
+        </button>
       </section>
     </main>
+  );
+}
+
+function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete }) {
+  const [step, setStep] = useState(0);
+  const [username, setUsername] = useState(
+    profile.username === "You" ? user.displayName || "" : profile.username
+  );
+  const [homeBase, setHomeBase] = useState(profile.homeBase);
+  const [privateByDefault, setPrivateByDefault] = useState(profile.privateByDefault);
+  const [friendQuery, setFriendQuery] = useState("");
+  const [friends, setFriends] = useState(profile.friends ?? []);
+  const suggestedFriends = useMemo(
+    () =>
+      ["ApexScout", "NovaHunter", "LensLegend", "CoastTracker", "PixelScout"].filter(
+        (name) =>
+          !friends.includes(name) &&
+          (!friendQuery || name.toLowerCase().includes(friendQuery.toLowerCase()))
+      ),
+    [friendQuery, friends]
+  );
+
+  function finishOnboarding(event) {
+    event.preventDefault();
+    setProfile({
+      ...profile,
+      username: username.trim() || user.displayName || "You",
+      homeBase,
+      privateByDefault,
+      theme,
+      friends
+    });
+    onComplete();
+  }
+
+  const steps = [
+    "About",
+    "Capture",
+    "Friends",
+    "Settings"
+  ];
+
+  return (
+    <main className="auth-shell">
+      <section className="onboarding-card">
+        <div className="onboarding-hero">
+          <img className="auth-logo" src="/dash-logo.png" alt="" />
+          <div>
+            <h1>{steps[step]} setup</h1>
+            <p>Learn the hunt, connect your crew, and tune your console.</p>
+          </div>
+        </div>
+        <div className="onboarding-steps" aria-label="Onboarding progress">
+          {steps.map((label, index) => (
+            <button
+              className={index === step ? "active" : ""}
+              key={label}
+              type="button"
+              onClick={() => setStep(index)}
+            >
+              <span>{index + 1}</span>
+              {label}
+            </button>
+          ))}
+        </div>
+        <form className="auth-form" onSubmit={finishOnboarding}>
+          {step === 0 && (
+            <div className="onboarding-panel">
+              <div className="feature-list">
+                <article>
+                  <MapPinned size={22} />
+                  <strong>What Dash-Snatch is</strong>
+                  <p>Dash-Snatch is a location photo hunt. You spot Dash Bottenberg, prove it with a photo, and place that verified sighting on your map.</p>
+                </article>
+                <article>
+                  <Trophy size={22} />
+                  <strong>How you score</strong>
+                  <p>Only photos that match Dash earn XP. Better matches unlock higher proof ranks and move you up the leaderboard.</p>
+                </article>
+                <article>
+                  <ShieldCheck size={22} />
+                  <strong>Why validation matters</strong>
+                  <p>The app compares uploads against the Dash reference images before a sighting can be submitted.</p>
+                </article>
+              </div>
+            </div>
+          )}
+
+          {step === 1 && (
+            <div className="onboarding-panel">
+              <div className="capture-guide">
+                <div>
+                  <Camera size={28} />
+                  <strong>Capture him clearly</strong>
+                  <p>Use Hunt, upload or take a photo, then allow location. A clear face/body shot in good light has the best chance to pass.</p>
+                </div>
+                <ol>
+                  <li>Open Hunt and choose Capture.</li>
+                  <li>Upload a photo where Dash is visible.</li>
+                  <li>Tap Location so the map pin is real.</li>
+                  <li>Submit only after it says Dash match.</li>
+                </ol>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div className="onboarding-panel">
+              <label>
+                <span>Find friends you know</span>
+                <input
+                  value={friendQuery}
+                  onChange={(event) => setFriendQuery(event.target.value)}
+                  placeholder="Search by hunter name"
+                />
+              </label>
+              <div className="friend-results">
+                {suggestedFriends.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setFriends([...friends, name])}
+                  >
+                    <Users size={18} />
+                    <span>{name}</span>
+                    <strong>Add</strong>
+                  </button>
+                ))}
+              </div>
+              <div className="friend-chips">
+                {friends.length ? (
+                  friends.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => setFriends(friends.filter((friend) => friend !== name))}
+                    >
+                      {name} x
+                    </button>
+                  ))
+                ) : (
+                  <p>No friends added yet. You can skip this and add real accounts later.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="onboarding-panel">
+              <label>
+                <span>Hunter name</span>
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  placeholder="Your display name"
+                />
+              </label>
+              <label>
+                <span>Home base</span>
+                <input
+                  value={homeBase}
+                  onChange={(event) => setHomeBase(event.target.value)}
+                  placeholder="City or neighborhood"
+                />
+              </label>
+              <label className="toggle-row onboarding-toggle">
+                <span>
+                  <strong>Private sightings by default</strong>
+                  <small>You can still change privacy on each upload.</small>
+                </span>
+                <input
+                  checked={privateByDefault}
+                  type="checkbox"
+                  onChange={(event) => setPrivateByDefault(event.target.checked)}
+                />
+              </label>
+              <ThemePicker theme={theme} setTheme={setTheme} />
+            </div>
+          )}
+
+          <div className="onboarding-actions">
+            <button
+              className="ghost-button"
+              type="button"
+              onClick={() => setStep(Math.max(0, step - 1))}
+              disabled={step === 0}
+            >
+              Back
+            </button>
+            {step < steps.length - 1 ? (
+              <button className="submit-button" type="button" onClick={() => setStep(step + 1)}>
+                Next
+              </button>
+            ) : (
+              <button className="submit-button" type="submit">
+                Start hunting
+              </button>
+            )}
+          </div>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+function ThemePicker({ theme, setTheme }) {
+  return (
+    <div className="theme-picker">
+      <span className="field-label">Theme</span>
+      <div className="theme-grid">
+        {THEMES.map((item) => (
+          <button
+            className={theme === item.id ? "theme-option active" : "theme-option"}
+            key={item.id}
+            type="button"
+            onClick={() => setTheme(item.id)}
+          >
+            <span className={`theme-swatch ${item.id}`} />
+            <strong>{item.label}</strong>
+            <small>{item.description}</small>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -948,7 +1259,7 @@ function ProfilePage({ profile, setProfile, stats, sightings }) {
   );
 }
 
-function SettingsPage({ clearSightings, profile, setProfile, sightings }) {
+function SettingsPage({ clearSightings, profile, setProfile, setTheme, sightings, theme }) {
   return (
     <section className="panel full-panel">
       <div className="panel-header">
@@ -959,6 +1270,7 @@ function SettingsPage({ clearSightings, profile, setProfile, sightings }) {
         <Settings size={22} />
       </div>
       <div className="settings-list">
+        <ThemePicker theme={theme} setTheme={setTheme} />
         <label className="toggle-row">
           <span>
             <strong>Private by default</strong>
