@@ -357,17 +357,6 @@ p {
   font-weight: 850;
 }
 
-.onboarding-steps button span {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  color: #fff;
-  background: color-mix(in srgb, var(--primary), #64748b 30%);
-  font-size: 12px;
-}
-
 .onboarding-steps button.active {
   border-color: color-mix(in srgb, var(--primary), white 45%);
   color: var(--primary-dark);
@@ -388,8 +377,7 @@ p {
 
 .feature-list article,
 .capture-guide,
-.theme-option,
-.friend-results button {
+.theme-option {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--soft-bg);
@@ -433,30 +421,21 @@ p {
   color: var(--muted);
 }
 
-.friend-results {
+.friend-entry {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr 96px;
+  gap: 8px;
 }
 
-.friend-results button {
-  min-height: 52px;
-  display: grid;
-  grid-template-columns: 22px 1fr max-content;
-  align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  color: inherit;
-  text-align: left;
-}
-
-.friend-results svg {
-  color: var(--primary);
-}
-
-.friend-results strong {
+.friend-entry button {
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--primary), white 45%);
+  border-radius: 8px;
   color: var(--primary-dark);
+  background: color-mix(in srgb, var(--primary), transparent 90%);
+  font-weight: 850;
 }
+
 
 .friend-chips {
   display: flex;
@@ -1291,7 +1270,16 @@ article.photo-card {
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--soft-bg);
+}
+
+.leaderboard-list {
+  display: grid;
+  gap: 10px;
+}
+
+.leaderboard-single strong {
+  color: var(--primary-dark);
 }
 
 .leaderboard-single span {
@@ -1300,8 +1288,8 @@ article.photo-card {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  color: #92400e;
-  background: #fef3c7;
+  color: #fff;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
   font-weight: 900;
 }
 

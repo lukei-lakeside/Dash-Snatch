@@ -354,7 +354,7 @@ function App() {
   }, [user]);
 
   if (authLoading) {
-    return <AuthLoading />;
+    return null;
   }
 
   if (!user) {
@@ -428,18 +428,6 @@ function Sidebar({ page }) {
         ))}
       </nav>
     </aside>
-  );
-}
-
-function AuthLoading() {
-  return (
-    <main className="auth-shell">
-      <section className="auth-card">
-        <img className="auth-logo" src="/dash-logo.png" alt="" />
-        <h1>Loading Dash-Snatch</h1>
-        <p>Checking your sign-in session.</p>
-      </section>
-    </main>
   );
 }
 
@@ -583,15 +571,13 @@ function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete
   const [privateByDefault, setPrivateByDefault] = useState(profile.privateByDefault);
   const [friendQuery, setFriendQuery] = useState("");
   const [friends, setFriends] = useState(profile.friends ?? []);
-  const suggestedFriends = useMemo(
-    () =>
-      ["ApexScout", "NovaHunter", "LensLegend", "CoastTracker", "PixelScout"].filter(
-        (name) =>
-          !friends.includes(name) &&
-          (!friendQuery || name.toLowerCase().includes(friendQuery.toLowerCase()))
-      ),
-    [friendQuery, friends]
-  );
+
+  function addFriend() {
+    const friend = friendQuery.trim();
+    if (!friend || friends.includes(friend)) return;
+    setFriends([...friends, friend]);
+    setFriendQuery("");
+  }
 
   function finishOnboarding(event) {
     event.preventDefault();
@@ -631,7 +617,6 @@ function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete
               type="button"
               onClick={() => setStep(index)}
             >
-              <span>{index + 1}</span>
               {label}
             </button>
           ))}
@@ -681,25 +666,17 @@ function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete
             <div className="onboarding-panel">
               <label>
                 <span>Find friends you know</span>
-                <input
-                  value={friendQuery}
-                  onChange={(event) => setFriendQuery(event.target.value)}
-                  placeholder="Search by hunter name"
-                />
-              </label>
-              <div className="friend-results">
-                {suggestedFriends.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => setFriends([...friends, name])}
-                  >
-                    <Users size={18} />
-                    <span>{name}</span>
-                    <strong>Add</strong>
+                <div className="friend-entry">
+                  <input
+                    value={friendQuery}
+                    onChange={(event) => setFriendQuery(event.target.value)}
+                    placeholder="Enter a friend's username or email"
+                  />
+                  <button type="button" onClick={addFriend}>
+                    Add
                   </button>
-                ))}
-              </div>
+                </div>
+              </label>
               <div className="friend-chips">
                 {friends.length ? (
                   friends.map((name) => (
@@ -712,7 +689,7 @@ function OnboardingPage({ profile, setProfile, setTheme, theme, user, onComplete
                     </button>
                   ))
                 ) : (
-                  <p>No friends added yet. You can skip this and add real accounts later.</p>
+                  <p>No friends added yet. Add people you actually know by username or email.</p>
                 )}
               </div>
             </div>
@@ -1180,20 +1157,37 @@ function FeedPage({ sightings }) {
 }
 
 function LeadersPage({ profile, stats }) {
+  const rows = [
+    {
+      name: profile.username || "You",
+      xp: stats.xp,
+      detail: `${stats.valid} valid`
+    },
+    ...(profile.friends ?? []).map((friend) => ({
+      name: friend,
+      xp: 0,
+      detail: "friend"
+    }))
+  ];
+
   return (
     <section className="panel full-panel">
       <div className="panel-header">
         <div>
           <h2>Leaderboard</h2>
-          <p>Fake competitors removed. Add friends later when accounts exist.</p>
+          <p>Your leaderboard uses your account and the real friends you added.</p>
         </div>
         <Users size={22} />
       </div>
-      <div className="leaderboard-single">
-        <span>1</span>
-        <strong>{profile.username || "You"}</strong>
-        <small>{stats.xp} XP</small>
-        <em>{stats.valid} valid</em>
+      <div className="leaderboard-list">
+        {rows.map((row, index) => (
+          <div className="leaderboard-single" key={`${row.name}-${index}`}>
+            <span>{index + 1}</span>
+            <strong>{row.name}</strong>
+            <small>{row.xp} XP</small>
+            <em>{row.detail}</em>
+          </div>
+        ))}
       </div>
     </section>
   );
